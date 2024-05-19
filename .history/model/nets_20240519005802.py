@@ -109,7 +109,7 @@ class NDPLayer(nn.Module):
         self._reset_parameters()
 
     def forward (self, x):
-        # breakpoint()
+
         fea = self.posenc( x )
         fea = self.input(fea)
         fea = self.mlp(fea)

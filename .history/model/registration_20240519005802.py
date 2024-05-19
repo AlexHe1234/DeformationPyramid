@@ -6,7 +6,7 @@ from skimage import io
 import pytorch3d
 import torch.optim as optim
 
-Runbaselines=True
+Runbaselines=False
 if Runbaselines:
     from .geometry import *
     from geomloss import SamplesLoss

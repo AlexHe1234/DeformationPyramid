@@ -1,7 +1,7 @@
 import numpy as np
 from torch.utils import data
 from typing import Literal, List
-from data_utils import *
+from SceneTracker.lib.dataset.util import *
 import json
 import os
 import fpsample
@@ -60,7 +60,7 @@ class MixamoAMASS(data.Dataset):
             sf = os.path.join(self.root_dir, '0test.json')
             
         with open(sf, 'r') as f:
-            seqs = json.load(f)
+            seqs = json.load(sf)
         
         self.seqs = seqs
         # seqs = sorted([f for f in os.listdir(self.root_dir) if f[-3:] == 'npy'])
@@ -86,9 +86,9 @@ class MixamoAMASS(data.Dataset):
 
         # gt_seq_copy = seq.copy()
 
-        # if self.track_mesh:
-        rand_mesh_id = np.random.randint(0, len(seq_))
-        gt_verts = np.concatenate([seq_[rand_mesh_id][None], seq], axis=0)
+        if self.track_mesh:
+            rand_mesh_id = np.random.randint(0, len(seq_))
+            gt_verts = np.concatenate([seq_[rand_mesh_id][None], seq], axis=0)
             
         # nf = gt_verts.shape[0]
         # gt_verts_copy = gt_verts.copy()
@@ -116,7 +116,7 @@ class MixamoAMASS(data.Dataset):
             aug_verts += np.random.randn(*aug_verts.shape) * self.rand_perturb_avg_sd[1] + self.rand_perturb_avg_sd[0]    
         rand_sample_buffer = np.empty((nf, sample_num_points, 3))  # resample mesh, weighted by face area
         num_point_samples = int(rand_sample_buffer.shape[1] * (1. - self.noise_ratio))
-        # num_over_samples = int(self.over_sampling * num_point_samples)
+        num_over_samples = int(self.over_sampling * num_point_samples)
         for i in range(nf): 
             rand_sample_buffer_i = fps(aug_verts[i], num_point_samples, method=self.fps_method)
             rand_sample_buffer[i] = noisify_pcd(rand_sample_buffer_i, rand_sample_buffer.shape[1] - num_point_samples)

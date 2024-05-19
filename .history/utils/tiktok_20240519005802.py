@@ -61,15 +61,6 @@ class Timers(object):
         else:
             print("Average time for {:}: {:}".format(key, self.timers[key].avg()))
 
-    def get_strings(self):
-        strring = []
-        for k, v in self.timers.items():
-            strring.append(
-                "{:}: \t  average {:.4f},  total {:.4f} ,\t calls {:}".format(k.ljust(30), v.avg(), v.total_time,
-                                                                                v.calls)
-            )
-        return strring  
-
     # def get_text
     def get_strings(self):
         strring = []
