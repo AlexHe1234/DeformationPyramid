@@ -3,6 +3,8 @@ from torch.utils import data
 from typing import Literal, List
 from SceneTracker.lib.dataset.util import *
 import json
+import os
+import fpsample
 
 
 class MixamoAMASS(data.Dataset):
@@ -74,59 +76,64 @@ class MixamoAMASS(data.Dataset):
 
     def __getitem__(self, idx):
         seq_name = self.seqs[idx]
-        seq = np.load(os.path.join(self.root_dir, seq_name))  # F_og, P_og, 3
+        seq_ = np.load(os.path.join(self.root_dir, seq_name))  # F_og, P_og, 3
 
-        nf = seq.shape[0]
+        nf = seq_.shape[0]
         if nf > self.max_frame:
             start_frame = np.random.randint(0, nf - self.max_frame + 1)
-            seq = seq[start_frame : start_frame + self.max_frame]
+            seq = seq_[start_frame : start_frame + self.max_frame]
             nf = seq.shape[0]
 
-        gt_seq_copy = seq.copy()
+        # gt_seq_copy = seq.copy()
 
-        seq, reverse_transform = proc_frame_points(seq,
-                                                   ret_reverse_transform=True,
-                                                   use_rand_rotation=self.rand_rotation,
-                                                   rand_rotate_z_only=self.rand_rotate_z_only,
-                                                   use_rand_padding=self.rand_padding,
-                                                   rand_padding_range=self.rand_padding_range)
+        if self.track_mesh:
+            rand_mesh_id = np.random.randint(0, len(seq_))
+            gt_verts = np.concatenate([seq_[rand_mesh_id][None], seq], axis=0)
+            
+        # nf = gt_verts.shape[0]
+        # gt_verts_copy = gt_verts.copy()
 
-        input_seq = seq.copy()
-
-        if self.rand_reordering:
-            input_seq = rand_reorder_by_frame(input_seq)
-
-        if self.rand_perturb:
-            input_seq += np.random.randn(*input_seq.shape) * self.rand_perturb_avg_sd[1] + self.rand_perturb_avg_sd[0]
-
-        rand_sample_buffer = np.empty((nf, self.num_points if self.num_points < input_seq.shape[1] else input_seq.shape[1], 3))
-        num_point_samples = int(rand_sample_buffer.shape[1] * (1. - self.noise_ratio))
-        for i in range(nf):
-            seq_i = input_seq[i]  # N, 3
-            rot_matrix = Rotation.random().as_matrix().T
-            seq_i = seq_i @ rot_matrix
-            sampled_i = fps(seq_i, num_point_samples, method=self.fps_method)
-            rand_sample_buffer_i = sampled_i @ rot_matrix.T
-            rand_sample_buffer[i] = noisify_pcd(rand_sample_buffer_i, rand_sample_buffer.shape[1] - num_point_samples)
-
-
-        rand_sample_buffer[rand_sample_buffer > 1.] = 1. - 1e-6
-        rand_sample_buffer[rand_sample_buffer < -1.] = -1. + 1e-6
-
-        sampled_verts_indices = smart_sample(seq[0], self.num_tracks, self.uni_prob)
-        # sampled_verts_indices = np.random.choice(seq.shape[1], size=self.num_tracks, replace=False)
-        sampled_verts = seq[:, sampled_verts_indices]
-
+        gt_verts, reverse_transform = proc_frame_points(gt_verts, 
+                                                        ret_reverse_transform=True,
+                                                        use_rand_rotation=False,
+                                                        rand_rotate_z_only=self.rand_rotate_z_only,
+                                                        use_rand_padding=False,
+                                                        rand_padding_range=self.rand_padding_range)
+        
         transform = np.eye(4)[None]
         for tran_mat in reversed(reverse_transform):
-            transform = np.matmul(transform, tran_mat)
+            transform = np.matmul(transform, tran_mat)  # this is transposed!
+
+        transform_ = transform[1:]
+
+        feature_weight_gt = np.ones((transform_.shape[0], self.num_tracks))
+        first_appear = np.zeros((self.num_tracks))
+        
+        # random sample points
+        aug_verts = gt_verts[1:].copy()
+        sample_num_points = min(self.num_points, gt_verts.shape[1])
+        if self.rand_perturb:
+            aug_verts += np.random.randn(*aug_verts.shape) * self.rand_perturb_avg_sd[1] + self.rand_perturb_avg_sd[0]    
+        rand_sample_buffer = np.empty((nf, sample_num_points, 3))  # resample mesh, weighted by face area
+        num_point_samples = int(rand_sample_buffer.shape[1] * (1. - self.noise_ratio))
+        num_over_samples = int(self.over_sampling * num_point_samples)
+        for i in range(nf): 
+            rand_sample_buffer_i = fps(aug_verts[i], num_point_samples, method=self.fps_method)
+            rand_sample_buffer[i] = noisify_pcd(rand_sample_buffer_i, rand_sample_buffer.shape[1] - num_point_samples)
 
         ret = {
-            'reverse_transform': transform,  # nf, 4, 4
-            'tracks': sampled_verts,  # nf, ntrack, 3
-            'tracks_og': gt_seq_copy[:, sampled_verts_indices],  # nf, ntrack, 3
-            'points': rand_sample_buffer,  # nf, npoint, 3
-            'first': np.zeros((sampled_verts.shape[1])),  # TODO: ntrack
+            'reverse_transform': transform_,  # nf, 4, 4 c 
+            # 'reverse_transform_mesh': transform[0],  # 4, 4 c
+            'tracks': gt_verts[1:],  # nf, ntrack, 3 mesh gt
+            # 'tracks_og': gt_verts_copy[:, sampled_verts_indices],  # nf, ntrack, 3
+            'points': rand_sample_buffer,  # nf, npoint, 3  sparse sampled points
+            'first': first_appear,  # ntrack,
+            'f_weights': feature_weight_gt,  # nf, ntrack
         }
+
+        ret['points_mesh'] = gt_verts[0] # N, 3
+        mesh_anchor_indices = fpsample.bucket_fps_kdline_sampling(gt_verts[0], self.num_tracks, 5)
+        ret['tracks_mesh'] = gt_verts[0][mesh_anchor_indices]
+        # ret['tracks_mesh_gt'] = gt_verts[1:][:, mesh_anchor_indices]
 
         return ret

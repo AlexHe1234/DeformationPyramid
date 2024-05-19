@@ -12,6 +12,7 @@ from model.loss import compute_flow_metrics
 from utils.benchmark_utils import setup_seed
 from utils.utils import Logger, AverageMeter
 from utils.tiktok import Timers
+from ma_dataset import MixamoAMASS
 
 
 def join(loader, node):
@@ -62,8 +63,7 @@ if __name__ == "__main__":
 
     # config.split['test'] = benchmark
 
-    D = _4DMatch( config, 'test', data_augmentation=False)
-    from
+    D = MixamoAMASS(split='test', root_dir='./data/')  # TODO:
     # logger = Logger(  os.path.join( config.snapshot_dir, benchmark+".log" ))
 
     stats_meter = None
@@ -71,51 +71,53 @@ if __name__ == "__main__":
     for i in tqdm( range( len(D))):
         # src_pcd, tar_pcd, flow_gt = dat
 
-        src_pcd, tgt_pcd, _, _, _, rot, trn, s2t_flow, _, _, _ = D.__getitem__(i, debug=False)
+        batch = D.__getitem__(i)
+        frame = len(batch['points'])
+        
+        traj_pred = []
+        
+        for f in range(frame):
+            if f == 0:
+                src_pcd = batch['points_mesh']
+                tgt_pcd = batch['points'][0]
+                # flow_gt = batch['tracks'][0] - batch['points_mesh']
+            else:
+                src_pcd = warped_pcd.detach()
+                tgt_pcd = batch['points'][f]
+                # flow_gt = batch['tracks'][1] - 
+                # TODO:
 
-        """compute scene flow GT"""
-        src_pcd_deformed = src_pcd + s2t_flow
-        s_pc_wrapped = ( rot @ src_pcd_deformed.T + trn ).T
-        s2t_flow = s_pc_wrapped - src_pcd
-        flow_gt = torch.from_numpy(s2t_flow).to(config.device)
+            """obtain overlap mask"""
+            overlap = np.ones(len(src_pcd))
 
-        """obtain overlap mask"""
-        overlap = np.ones(len(src_pcd))
-        # overlap[correspondence[:, 0]] = 1
-        # overlap = overlap.astype(bool)
-        # overlap = torch.from_numpy(overlap).to(config.device)
+            model.load_pcds(src_pcd, tgt_pcd)
 
-        model.load_pcds(src_pcd, tgt_pcd)
+            timer.tic("registration")
+            warped_pcd, iter_cnt, timer = model.register(visualize=args.visualize, timer = timer)
+            timer.toc("registration")
+            # flow = warped_pcd - model.src_pcd
+            # metric_info = compute_flow_metrics(flow, flow_gt, overlap=overlap)
+            traj_pred.append(warped_pcd.detach().clone())
 
-        timer.tic("registration")
-        warped_pcd, iter_cnt, timer = model.register(visualize=args.visualize, timer = timer)
-        timer.toc("registration")
-        flow = warped_pcd - model.src_pcd
-
-
-
-        metric_info = compute_flow_metrics(flow, flow_gt, overlap=overlap)
-
-
-        if stats_meter is None:
-            stats_meter = dict()
-            for key, _ in metric_info.items():
-                stats_meter[key] = AverageMeter()
-        for key, value in metric_info.items():
-            stats_meter[key].update(value)
-
-
-
-    # note down flow scores on a benchmark
-    message = f'{i}/{len(D)}: '
-    for key, value in stats_meter.items():
-        message += f'{key}: {value.avg:.3f}\t'
-    logger.write(message + '\n')
-    print( "score on ", benchmark, '\n', message)
+            # if stats_meter is None:
+            #     stats_meter = dict()
+            #     for key, _ in metric_info.items():
+            #         stats_meter[key] = AverageMeter()
+            # for key, value in metric_info.items():
+                # stats_meter[key].update(value)
+        breakpoint()
 
 
-    # note down average time cost
-    print('time cost average')
-    for ele in timer.get_strings():
-        logger.write(ele + '\n')
-        print(ele)
+    # # note down flow scores on a benchmark
+    # message = f'{i}/{len(D)}: '
+    # for key, value in stats_meter.items():
+    #     message += f'{key}: {value.avg:.3f}\t'
+    # logger.write(message + '\n')
+    # print( "score on ", benchmark, '\n', message)
+
+
+    # # note down average time cost
+    # print('time cost average')
+    # for ele in timer.get_strings():
+    #     logger.write(ele + '\n')
+    #     print(ele)
