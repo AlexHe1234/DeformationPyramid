@@ -12,7 +12,8 @@ from model.loss import compute_flow_metrics
 from utils.benchmark_utils import setup_seed
 from utils.utils import Logger, AverageMeter
 from utils.tiktok import Timers
-from ma_dataset import MixamoAMASS
+# from ma_dataset import MixamoAMASS
+from df_datset import DfaustTrain
 from time import perf_counter
 
 def eval_metric(pred, gt):
@@ -98,7 +99,7 @@ if __name__ == "__main__":
 
     # config.split['test'] = benchmark
 
-    D = MixamoAMASS(split='test', root_dir='data/mixamo_cmu') 
+    D = DfaustTrain(root_dir='data/DFAUST') 
     # logger = Logger(  os.path.join( config.snapshot_dir, benchmark+".log" ))
 
     stats_meter = None
